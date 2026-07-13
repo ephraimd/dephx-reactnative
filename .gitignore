@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Node (only relevant if tooling is added later; the skill itself ships no deps)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Scratch
+*.log
+tmp/
