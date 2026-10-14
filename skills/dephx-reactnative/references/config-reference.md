@@ -1,42 +1,28 @@
-# Config reference — the wiring that interlocks
+# Configuration: version-specific examples
 
-These files are version-sensitive and easy to get subtly wrong. Copy them as a set. Symptoms of a mistake are listed in `references/gotchas.md`.
+## Resolve a supported matrix first
 
-## Version matrix (baseline)
+The original v0.1.0 recipe named Expo 57 / RN 0.86 / React 19.2 / NativeWind v4.
+That historical example is not a verified current compatibility matrix. Do not pin it
+as a bundle or copy it over an existing app. Inspect the SDK, lockfile and UI kit;
+use Expo-compatible versions and validate them with the project's package manager.
+Run the selected SDK's install check/Expo Doctor and the relevant native runtime tests.
+Record the resolved versions, sources, verification date and remaining limitations.
 
-Verified together. If you bump one, re-check the others against the Expo SDK upgrade notes.
+The Babel/Metro/Tailwind snippets below illustrate NativeWind v4 with Tailwind v3.
+They do not apply unchanged to NativeWind v5/Tailwind v4. Confirm the installed
+Reanimated/worklets configuration rather than adding a second transform blindly.
 
-| Package | Version | Note |
-|---|---|---|
-| expo | ~57.0 | SDK baseline |
-| react-native | 0.86 | New Architecture on by default |
-| react / react-dom | 19.2 | |
-| expo-router | ~57.0 | file-based routing |
-| nativewind | ^4.2 | Tailwind for RN |
-| tailwindcss | ^3.4 | v3 (NativeWind v4 targets Tailwind 3) |
-| react-native-reanimated | 4.5 | v4 → plugin moved into worklets |
-| react-native-worklets | 0.10 | provides the babel plugin |
-| react-native-mmkv | ^4.3 | needs react-native-nitro-modules |
-| react-native-nitro-modules | ^0.36 | MMKV v4 peer |
-| @tanstack/react-query | ^5.101 | + react-query-persist-client |
-| zustand | ^5.0 | |
-| axios | ^1.18 | |
-| decimal.js | ^10.6 | precise numbers |
-| expo-secure-store | ~57.0 | tokens |
-| typescript | ~6.0 | strict |
-| jest-expo | ^57.0 | test preset |
+Primary sources: [Expo SDK reference](https://docs.expo.dev/versions/latest/),
+[NativeWind installation](https://www.nativewind.dev/docs/getting-started/installation),
+[Gluestack installation](https://gluestack.io/ui/docs/home/getting-started/installation).
 
-## `.npmrc` — required
+Keep the existing package manager. Resolve peer conflicts; no blanket `.npmrc`
+`legacy-peer-deps` requirement. See `gotchas.md` for recovery ownership.
 
-```
-legacy-peer-deps=true
-```
+## `app.config.ts` - the source of truth (CNG)
 
-React 19 + RN 0.86 are new enough that some libraries' `peerDependencies` ranges lag. Without this, `npm install` fails with `ERESOLVE`. This is intentional; keep it. (If you prefer yarn/pnpm, set the equivalent.)
-
-## `app.config.ts` — the source of truth (CNG)
-
-`android/` and `ios/` are generated from this file (Continuous Native Generation). This is where identifiers, version, icons, splash, permissions, and plugins live. Never edit the native folders directly.
+For a confirmed CNG project, app configuration and config plugins own generated native settings. Verify native-folder ownership before regeneration. The following identifiers and colors are illustrative; replace them with the project's canonical values. Build configuration is public, not secret storage.
 
 ```ts
 import type { ExpoConfig, ConfigContext } from 'expo/config';
@@ -91,9 +77,9 @@ import Constants from 'expo-constants';
 const apiBaseUrl = (Constants.expoConfig?.extra?.apiBaseUrl as string) ?? '';
 ```
 
-Never hardcode the base URL in source — thread it through `extra` so builds can retarget without a code change.
+Do not hardcode origins in request/client code. Use the existing public build configuration; example defaults above are illustrative, not production destinations. Validate required origins before sending requests.
 
-## `babel.config.js` — worklets plugin MUST be last
+## `babel.config.js`: NativeWind v4 / worklets example
 
 ```js
 module.exports = function (api) {
@@ -113,7 +99,7 @@ module.exports = function (api) {
 };
 ```
 
-## `metro.config.js` — NativeWind transform
+## `metro.config.js` - NativeWind transform
 
 ```js
 const { getDefaultConfig } = require('expo/metro-config');
@@ -123,9 +109,9 @@ const config = getDefaultConfig(__dirname);
 module.exports = withNativeWind(config, { input: './global.css' });
 ```
 
-## `tailwind.config.js` + `global.css` — semantic tokens
+## `tailwind.config.js` + `global.css` - semantic tokens
 
-Colors are CSS variables (RGB channels so Tailwind opacity modifiers like `bg-primary/50` work), defined light in `:root` and dark in `.dark`, and mirrored in `src/theme/` for JS access.
+Colors are CSS variables (RGB channels so Tailwind opacity modifiers like `bg-primary/50` work), defined light in `:root` and dark in `.dark`, with native values derived or validated against the same canonical source. These illustrative snippets do not establish complete native provider wiring; follow the selected major's official recipe and test actual devices.
 
 `tailwind.config.js`:
 
@@ -226,7 +212,7 @@ declare module '*.css';
 
 `@/*` maps to the project root, so imports read `@/src/lib/apiClient`, `@/src/components/ScreenHeader`.
 
-## `eas.json` — build profiles (optional; needed for cloud builds)
+## `eas.json` - build profiles (optional; needed for cloud builds)
 
 ```json
 {

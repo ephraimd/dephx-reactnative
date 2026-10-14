@@ -6,16 +6,22 @@
   },
   "metadata": {
     "description": "dephx skills for building software the right way.",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "plugins": [
     {
       "name": "dephx-reactnative",
       "source": "./",
       "description": "Production-grade Expo / React Native foundation as a portable skill: architecture, config, data/state/storage/theming patterns, testing, and Expo build gotchas.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "category": "development",
-      "keywords": ["react-native", "expo", "mobile", "typescript", "architecture"]
+      "keywords": [
+        "react-native",
+        "expo",
+        "mobile",
+        "typescript",
+        "architecture"
+      ]
     }
   ]
 }
