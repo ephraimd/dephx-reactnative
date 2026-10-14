@@ -1,10 +1,10 @@
-# Architecture — structure, feature slices, root wiring
+# Architecture - structure, feature slices, root wiring
 
 ## Folder structure
 
 ```
 app/                      expo-router routes. Folder = URL segment. Screens only.
-  _layout.tsx             root providers (Query+persist, SafeArea, theme, auth wiring)
+  _layout.tsx             root providers (Query with optional persistence, SafeArea, theme, auth wiring)
   index.tsx               boot/redirect entry
   (auth)/                 route group: login, signup, verify, set-pin …
   (tabs)/                 route group: the tab bar + tab screens
@@ -15,25 +15,24 @@ src/
     model/                pure logic: formatting, derivations, state machines + .test.ts
     ui/                   components specific to this feature
   lib/                    cross-cutting spine (see below)
-    apiClient.ts          injectable HTTP client + single-flight 401 refresh
+    apiClient.ts          injectable HTTP client + supported auth lifecycle
     secureStore.ts        token read/write/clear (expo-secure-store)
-    queryClient.ts        QueryClient + MMKV persister + persistOptions
+    queryClient.ts        QueryClient + optional scoped/allowlisted persistence
     queryKeys.ts          structured cache-key factory (one source of truth)
     constants.ts          shared literals (URLs, feature strings)
-    money.ts              decimal.js helpers (only if you handle precise numbers)
+    money.ts              existing money contract helpers (decimal.js only if needed)
     idempotency.ts        de-dupe key for money/mutation retries (only if needed)
-    api/types.ts          GENERATED from the backend OpenAPI spec — never hand-edit
-  theme/                  tokens + useTheme (light/dark) + theme.ts (JS mirror of CSS vars)
+    api/types.ts          backend contract types (generate when maintained OpenAPI exists)
+  theme/                  one canonical token source + useTheme (light/dark)
   components/             YOUR shared, domain-agnostic components (ScreenHeader, AppInput …)
-components/ui/            OPTIONAL: thin wrappers around a 3rd-party primitive lib
-                         (e.g. Gluestack). Skip this folder if you use plain
-                         react-native View/Text — then import those directly.
+components/ui/            chosen UI-library primitives and shared adaptations
+                         (use the existing location in a consuming app)
 assets/                  icons, splash, adaptive icon
 ```
 
-**Route groups** `(auth)` / `(tabs)` are expo-router parentheses folders: they group screens under a shared layout without adding a URL segment. Keep screens in `app/` as thin as possible — they import a hook from `src/features/*/api` and render.
+**Route groups** `(auth)` / `(tabs)` are expo-router parentheses folders: they group screens under a shared layout without adding a URL segment. Keep screens in `app/` as thin as possible - they import a hook from `src/features/*/api` and render.
 
-## The feature slice — the unit you repeat
+## The feature slice - the unit you repeat
 
 Every feature is a self-contained slice with three layers. A "notes" feature, de-branded, is the canonical shape:
 
@@ -50,15 +49,15 @@ src/features/notes/
 
 Why this shape:
 
-- **`model/` is pure and does the thinking.** It has no imports from expo/react-native/network. It's trivially unit-tested (see `references/testing.md`). This is where most of your tested logic lives.
+- **`model/` is pure and does the thinking.** It has no imports from expo/react-native/network. It's trivially unit-tested (see `testing.md`). This is where most of your tested logic lives.
 - **`api/` is the only place that knows the backend.** Each hook wraps one endpoint, unwraps the response envelope, and returns typed data. Route strings live here as named consts.
 - **`ui/` is presentational.** Components receive already-derived display objects from `model/`, so they contain no business logic.
 
-A screen in `app/` then reads `useNotes()`, maps rows through the `model/` deriver, and renders `<NoteRow>`. Nothing in the screen needs a test because it holds no logic.
+A screen in `app/` then reads `useNotes()`, maps rows through the `model/` deriver, and renders `<NoteRow>`. Thin composition still needs runtime checks for navigation, accessibility, keyboard and draft behavior.
 
 ### Example: pure model + its hook (de-branded from a real list feature)
 
-`model/noteDisplay.ts` — pure, safe to call in render, fully unit-testable:
+`model/noteDisplay.ts` - pure, safe to call in render, fully unit-testable:
 
 ```ts
 export interface NoteDisplay {
@@ -81,7 +80,7 @@ export function toNoteDisplay(note: { title?: string; status: string }): NoteDis
 }
 ```
 
-`api/useNotes.ts` — the only network-aware file; note the named route const and envelope unwrap:
+`api/useNotes.ts` - the only network-aware file; note the named route const and envelope unwrap:
 
 ```ts
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
@@ -89,85 +88,71 @@ import { apiClient } from '@/src/lib/apiClient';
 import { queryKeys } from '@/src/lib/queryKeys';
 import type { ApiEnvelope, Note } from '@/src/lib/api/types';
 
-export const NOTES_ROUTE = '/notes'; // no trailing slash — see gotchas.md
+export const NOTES_ROUTE = '/notes'; // no trailing slash - see gotchas.md
 
-export async function fetchNotes(): Promise<Note[]> {
-  const res = await apiClient.request<ApiEnvelope<Note[]>>({ url: NOTES_ROUTE });
+export async function fetchNotes(signal: AbortSignal): Promise<Note[]> {
+  const res = await apiClient.request<ApiEnvelope<Note[]>>({ url: NOTES_ROUTE, signal });
   const data = res.data.data;
-  return Array.isArray(data) ? data : []; // degrade to empty, never crash the list
+  if (!Array.isArray(data)) throw new Error('Invalid notes response');
+  return data; // successful empty remains distinct from a malformed response
 }
 
-export function useNotes(): UseQueryResult<Note[]> {
-  return useQuery({ queryKey: queryKeys.notes.all(), queryFn: fetchNotes });
-}
-```
-
-For paginated lists use `useInfiniteQuery` with a `buildParams(page)` helper and a pure `getNextPageParam` (a short page = the end) — both easily tested. See `references/api-layer.md`.
-
-## Root layout wiring (`app/_layout.tsx`)
-
-The root layout is where cross-cutting providers and one-time wiring live, in this order:
-
-1. `GestureHandlerRootView` (outermost).
-2. `PersistQueryClientProvider` with the shared `queryClient` + `persistOptions` (MMKV) — restores cache on cold start.
-3. Theme provider / primitive provider (e.g. Gluestack) fed the resolved light/dark scheme.
-4. `SafeAreaProvider` + `StatusBar`.
-5. The `Stack` navigator with `headerShown: false` (screens render their own `ScreenHeader`).
-
-Two effects wired once on mount:
-
-- Sync the persisted theme mode into NativeWind's `colorScheme` so `dark:` classes and CSS-var themes flip immediately.
-- Register the auth-failure handler: when `apiClient`'s refresh fails, clear the session and `router.replace('/(auth)/login')`. This keeps the "kicked to login on unrecoverable 401" behavior in one place.
-
-Full file:
-
-```tsx
-// app/_layout.tsx
-import '../global.css';                       // MUST be imported once, here
-import { useEffect } from 'react';
-import { Stack, router } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
-import { colorScheme } from 'nativewind';
-
-import { queryClient, persistOptions } from '@/src/lib/queryClient';
-import { setAuthFailureHandler } from '@/src/lib/apiClient';
-import { useSession } from '@/src/features/auth/model/session';
-import { useTheme } from '@/src/theme/useTheme';
-
-export default function RootLayout() {
-  const mode = useTheme((s) => s.mode);
-  const scheme = useTheme((s) => s.resolvedScheme);
-
-  // Apply the restored theme preference on cold start (and on change).
-  useEffect(() => { colorScheme.set(mode); }, [mode]);
-
-  // Route to login when the session is unrecoverable (refresh failed).
-  useEffect(() => {
-    setAuthFailureHandler(() => {
-      useSession.getState().clear();
-      router.replace('/(auth)/login');
-    });
-  }, []);
-
-  return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
-        <SafeAreaProvider>
-          <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-          <Stack screenOptions={{ headerShown: false }} />
-        </SafeAreaProvider>
-      </PersistQueryClientProvider>
-    </GestureHandlerRootView>
-  );
+export function useNotes(accountId: string): UseQueryResult<Note[]> {
+  return useQuery({
+    queryKey: queryKeys.notes.all(accountId),
+    queryFn: ({ signal }) => fetchNotes(signal),
+    enabled: !!accountId,
+  });
 }
 ```
 
-If you adopt a UI-primitive library (e.g. Gluestack), add its provider just inside `PersistQueryClientProvider`, fed the resolved `scheme`.
+The shared client must accept AbortSignal and forward it to transport. This hook alone
+is not a session fence: bind the client's credential capture and late-response handling
+to the initiating account/session, including before cache writes. See `api-layer.md`.
 
-## `src/lib/constants.ts` — one home for shared literals
+For paginated lists use `useInfiniteQuery` with a `buildParams(page)` helper and a pure `getNextPageParam` following server pagination metadata - both easily tested. See `api-layer.md`.
+
+## Root layout lifecycle
+
+Reuse the existing provider composition: QueryClientProvider, the chosen UI/theme
+provider, SafeAreaProvider and native navigation. Gesture roots and persistence providers
+are included only when used. Do not hide native stack headers by default.
+
+Restore identity before private cache hydration. If persistence is approved, use the
+account-scoped allowlist and logout lifecycle in `state-storage.md`; a single global
+persister for every account is unsafe. Wire AppState/focus and connectivity once, avoid
+multiple listeners and preserve drafts during foreground refetches. Auth failure follows
+the actual backend session contract and clears private state before routing to login.
+
+## Deep links and authentication handoffs
+
+Map supported web links and native routes from the start, using Expo Router and the
+existing URL parser. Configure owned HTTPS domains for Android App Links and iOS
+Universal Links when selected; a custom scheme alone does not capture ordinary HTTPS
+links. Verify domain-association files, signed builds and cold/warm starts. Preserve a
+validated intended destination through login; reject malformed or untrusted targets.
+
+Future OAuth/connector support is not permission to build speculative integrations.
+For an authorized OAuth flow, inspect the server contract, use the supported system
+browser/AuthSession flow and enforce state, PKCE and allowlisted callback/redirect rules
+appropriate to the protocol. Never put long-lived credentials in link URLs. Opening or
+prefetching a link is read-only; attendance or payment requires its explicit action.
+
+## Camera-driven verification
+
+Reuse the installed scanner/camera primitive before adding custom frame processors.
+Keep the camera ready between scans while focused, stop it on background/unmount and
+handle permission denial/recovery. Guard repeated frame callbacks while an attempt is
+pending; re-arm deliberately after showing the result without preventing intentional
+rescans supported by the backend. Separate scan acknowledgement from confirmed success.
+
+For server-confirmed admission, only a confirmed server result permits admission.
+Timeout/connection loss leaves an unknown outcome: reconcile before another write, never
+show green from cached eligibility. Do not add offline admission or a retry queue unless
+explicitly authorized with server conflict rules. Profile decoding, feedback, request
+latency and concurrent gate handling separately; unit tests cannot certify camera speed.
+
+## `src/lib/constants.ts` - one home for shared literals
 
 Keep app-wide strings here so they don't drift across files (DRY). Small and boring by design:
 
@@ -180,9 +165,9 @@ export const WEB_URL = 'https://app.example.com';
 export const SUPPORT_EMAIL = 'support@example.com';
 ```
 
-Route strings stay next to their hook as named consts (`NOTES_ROUTE`), and cache keys live in `queryKeys.ts` — `constants.ts` is for the cross-cutting rest.
+Route strings stay next to their hook as named consts (`NOTES_ROUTE`), and cache keys live in `queryKeys.ts` - `constants.ts` is for the cross-cutting rest.
 
-## Where things go — quick decisions
+## Where things go - quick decisions
 
 | You're adding… | It goes in… |
 |---|---|

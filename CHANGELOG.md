@@ -3,7 +3,16 @@
 All notable changes to this skill are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions use [SemVer](https://semver.org/).
 
-## [0.1.0] — 2026-07-13
+## [0.2.0] - 2026-10-14
+
+- Restrict discovery to React Native / Expo app tasks; no global startup injection.
+- Bind native UI to project-owned brand/design rules and one component foundation.
+- Add consistent proportions, bounded lists, keyboard-safe overlays and safe save snapshots.
+- Correct private-cache/account isolation, conditional refresh and write reconciliation.
+- Remove blanket peer bypass and destructive native reset recipes; label version examples.
+- Require scoped native/device and release-performance evidence; add acceptance scenarios.
+
+## [0.1.0] - 2026-07-13
 
 Initial release.
 

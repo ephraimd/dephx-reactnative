@@ -1,7 +1,7 @@
 {
   "name": "dephx-reactnative",
-  "description": "Production-grade Expo / React Native foundation: architecture, config wiring, data/state/storage/theming patterns, testing doctrine, and the hard-won Expo build gotchas — as a portable skill.",
-  "version": "0.1.0",
+  "description": "Expo / React Native guidance for shared UI, safe drafts, backend contracts, private state, native verification and lean architecture.",
+  "version": "0.2.0",
   "author": {
     "name": "ephraimd",
     "url": "https://github.com/ephraimd"
